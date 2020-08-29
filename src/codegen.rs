@@ -31,6 +31,56 @@ const RESERVED_KWS: [&str; 51] = [
     "try",
 ];
 
+fn to_doc_rust_ast(s: &Option<String>) -> Option<TokenStream> {
+    s.as_ref().map(|doc| {
+        quote! {
+            #[doc = #doc]
+        }
+    })
+}
+
+impl Field {
+    pub fn doc_rust_ast(&self) -> Option<TokenStream> {
+        to_doc_rust_ast(&self.doc)
+    }
+
+    pub fn may_be_null(&self) -> bool {
+        self.doc
+            .as_ref()
+            .map(|doc| {
+                doc.contains("may be null")
+                    || doc.contains("only available to bots")
+                    || doc.contains("bots only")
+                    || doc.contains("or null")
+            })
+            .unwrap_or(false)
+    }
+}
+
+impl Struct {
+    pub fn doc_rust_ast(&self) -> Option<TokenStream> {
+        to_doc_rust_ast(&self.description)
+    }
+}
+
+impl Enum {
+    pub fn doc_rust_ast(&self) -> Option<TokenStream> {
+        to_doc_rust_ast(&self.description)
+    }
+}
+
+impl Function {
+    pub fn doc_rust_ast(&self) -> Option<TokenStream> {
+        to_doc_rust_ast(&self.description)
+    }
+}
+
+impl EnumVariant {
+    pub fn doc_rust_ast(&self) -> Option<TokenStream> {
+        to_doc_rust_ast(&self.description)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Codegen(Vec<Type>);
 
@@ -232,13 +282,8 @@ impl Codegen {
 
         for ty in &self.0 {
             match ty {
-                Type::Struct(Struct {
-                    description,
-                    fields,
-                    id: _id,
-                    name,
-                }) => {
-                    let fields = fields.iter().map(|f| {
+                Type::Struct(struct_) => {
+                    let fields = struct_.fields.iter().map(|f| {
                         let (field_name, field_name_attr) = Self::convert_field_identifier(&f.name);
                         let field_name_attr = field_name_attr.unwrap_or_default();
                         let ConvertedType {
@@ -246,31 +291,14 @@ impl Codegen {
                             de_from: ty_attr,
                         } = Self::convert_type(&f.type_);
                         // Recursive enum: the type of the field calls the enum.
-                        let is_recursive = &f.type_ == name;
+                        let is_recursive = f.type_ == struct_.name;
                         let ty = if is_recursive {
                             quote! { Box<#ty> }
                         } else {
                             ty
                         };
-                        let doc = f
-                            .doc
-                            .as_ref()
-                            .map(|doc| {
-                                quote! {
-                                    #[doc = #doc]
-                                }
-                            })
-                            .unwrap_or_default();
-                        let may_be_null = f
-                            .doc
-                            .as_ref()
-                            .map(|doc| {
-                                doc.contains("may be null")
-                                    || doc.contains("only available to bots")
-                                    || doc.contains("bots only")
-                                    || doc.contains("or null")
-                            })
-                            .unwrap_or(false);
+                        let doc = f.doc_rust_ast().unwrap_or_default();
+                        let may_be_null = f.may_be_null();
                         let (ty, may_be_null_attr) = if may_be_null {
                             (quote! { Option<#ty> }, quote! { #[serde(default)] })
                         } else {
@@ -293,16 +321,8 @@ impl Codegen {
                         }
                     });
 
-                    let doc = description
-                        .as_ref()
-                        .map(|desc| {
-                            quote! {
-                                #[doc = #desc]
-                            }
-                        })
-                        .unwrap_or_default();
-
-                    let (name, attr) = Self::convert_field_identifier(name);
+                    let doc = struct_.doc_rust_ast().unwrap_or_default();
+                    let (name, attr) = Self::convert_field_identifier(&struct_.name);
                     let attr = attr.unwrap_or_default();
 
                     response_enum_variants_names.push(quote! { #name });
@@ -316,28 +336,16 @@ impl Codegen {
                         }
                     });
                 }
-                Type::Enum(Enum {
-                    description,
-                    name,
-                    variants,
-                }) => {
-                    let variants = variants
+                Type::Enum(enum_) => {
+                    let variants = enum_
+                        .variants
                         .iter()
                         .map(|v| {
                             let variant_name = utils::capitalize(&v.id);
                             let (variant_name, attr) =
                                 Self::convert_field_identifier(&variant_name);
                             let attr = attr.unwrap_or_default();
-
-                            let desc = v
-                                .description
-                                .as_ref()
-                                .map(|desc| {
-                                    quote! {
-                                        #[doc = #desc]
-                                    }
-                                })
-                                .unwrap_or_default();
+                            let desc = v.doc_rust_ast().unwrap_or_default();
 
                             let fields = v.fields.iter().map(|vf| {
                                 let (field_name, field_name_attr) =
@@ -348,31 +356,14 @@ impl Codegen {
                                     de_from: ty_attr,
                                 } = Self::convert_type(&vf.type_);
                                 // Recursive enum: the type of the field calls the enum.
-                                let is_recursive = &vf.type_ == name;
+                                let is_recursive = vf.type_ == enum_.name;
                                 let ty = if is_recursive {
                                     quote! { Box<#ty> }
                                 } else {
                                     ty
                                 };
-                                let doc = vf
-                                    .doc
-                                    .as_ref()
-                                    .map(|doc| {
-                                        quote! {
-                                            #[doc = #doc]
-                                        }
-                                    })
-                                    .unwrap_or_default();
-                                let may_be_null = vf
-                                    .doc
-                                    .as_ref()
-                                    .map(|doc| {
-                                        doc.contains("may be null")
-                                            || doc.contains("only available to bots")
-                                            || doc.contains("bots only")
-                                            || doc.contains("or null")
-                                    })
-                                    .unwrap_or(false);
+                                let doc = vf.doc_rust_ast().unwrap_or_default();
+                                let may_be_null = vf.may_be_null();
                                 let (ty, may_be_null_attr) = if may_be_null {
                                     (quote! { Option<#ty> }, quote! { #[serde(default)] })
                                 } else {
@@ -417,16 +408,8 @@ impl Codegen {
                         types.push(v.clone());
                     }
 
-                    let doc = description
-                        .as_ref()
-                        .map(|desc| {
-                            quote! {
-                                #[doc = #desc]
-                            }
-                        })
-                        .unwrap_or_default();
-
-                    let (name, attr) = Self::convert_field_identifier(name);
+                    let doc = enum_.doc_rust_ast().unwrap_or_default();
+                    let (name, attr) = Self::convert_field_identifier(&enum_.name);
                     let attr = attr.unwrap_or_default();
 
                     // TODO: Probably it is cleaner to move this logic in the
@@ -450,47 +433,25 @@ impl Codegen {
                         }
                     })
                 }
-                Type::Function(Function {
-                    description,
-                    parameters,
-                    name,
-                    return_type,
-                }) => {
-                    let capitalized_name = utils::capitalize(&name);
+                Type::Function(fun) => {
+                    let capitalized_name = utils::capitalize(&fun.name);
                     let (capitalized_name, attr) =
                         Self::convert_field_identifier(&capitalized_name);
                     let attr = attr.unwrap_or_default();
 
                     let (return_type, return_type_attr) =
-                        Self::convert_field_identifier(&return_type);
+                        Self::convert_field_identifier(&fun.return_type);
                     let _return_type_attr = return_type_attr.unwrap_or_default();
 
-                    let parameters = parameters.iter().map(|p| {
+                    let parameters = fun.parameters.iter().map(|p| {
                         let (name, name_attr) = Self::convert_field_identifier(&p.name);
                         let name_attr = name_attr.unwrap_or_default();
                         let ConvertedType {
                             value: ty,
                             de_from: ty_attr,
                         } = Self::convert_type(&p.type_);
-                        let doc = p
-                            .doc
-                            .as_ref()
-                            .map(|doc| {
-                                quote! {
-                                    #[doc = #doc]
-                                }
-                            })
-                            .unwrap_or_default();
-                        let may_be_null = p
-                            .doc
-                            .as_ref()
-                            .map(|doc| {
-                                doc.contains("may be null")
-                                    || doc.contains("only available to bots")
-                                    || doc.contains("bots only")
-                                    || doc.contains("or null")
-                            })
-                            .unwrap_or(false);
+                        let doc = p.doc_rust_ast().unwrap_or_default();
+                        let may_be_null = p.may_be_null();
                         let (ty, may_be_null_attr) = if may_be_null {
                             (quote! { Option<#ty> }, quote! { #[serde(default)] })
                         } else {
@@ -513,14 +474,8 @@ impl Codegen {
                         }
                     });
 
-                    let doc = description
-                        .as_ref()
-                        .map(|desc| {
-                            quote! {
-                                #[doc = #desc]
-                            }
-                        })
-                        .unwrap_or_default();
+                    let doc = fun.doc_rust_ast().unwrap_or_default();
+                    let name = &fun.name;
 
                     methods.push(quote! {
                         #[derive(Serialize, Deserialize, Debug, Clone)]
