@@ -283,7 +283,6 @@ impl Codegen {
         for ty in &self.0 {
             match ty {
                 Type::Struct(struct_) => {
-                    let mut fields_names = Vec::new();
                     let fields = struct_.fields.iter().map(|f| {
                         let (field_name, field_name_attr) = Self::convert_field_identifier(&f.name);
                         let field_name_attr = field_name_attr.unwrap_or_default();
@@ -313,7 +312,6 @@ impl Codegen {
                         } else {
                             ty_attr.attr()
                         };
-                        fields_names.push(field_name.clone());
                         quote! {
                             #field_name_attr
                             #ty_attr
@@ -326,28 +324,15 @@ impl Codegen {
                     let doc = struct_.doc_rust_ast().unwrap_or_default();
                     let (name, attr) = Self::convert_field_identifier(&struct_.name);
                     let attr = attr.unwrap_or_default();
-                    let camel_case_name = utils::to_camel_case(&struct_.name);
-                    let fields_num = fields.len();
+
                     response_enum_variants_names.push(quote! { #name });
 
                     types.push(quote! {
-                        #[derive(Deserialize, Debug, Clone, PartialEq)]
+                        #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
                         #attr
                         #doc
                         pub struct #name {
                             #( #fields ),*
-                        }
-
-                        impl Serialize for #name {
-                            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-                            where
-                                S: Serializer,
-                            {
-                                let mut state = serializer.serialize_struct(stringify!(#name), #fields_num + 1)?;
-                                #( state.serialize_field(stringify!(#fields_names), &self.#fields_names)?; )*
-                                state.serialize_field("@type", #camel_case_name)?;
-                                state.end()
-                            }
                         }
                     });
                 }
@@ -521,7 +506,7 @@ impl Codegen {
             }
 
             pub mod types {
-                use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
+                use serde::{Deserialize, Serialize};
 
                 #( #types )*
 
