@@ -10,3 +10,4 @@ Cargo.lock
 **/*.rs.bk
 
 /td_api.rs
+/td_api.json

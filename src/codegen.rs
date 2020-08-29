@@ -216,6 +216,15 @@ impl Codegen {
             .collect()
     }
 
+    #[cfg(feature = "json")]
+    pub fn to_json(&self, pretty: bool) -> String {
+        if pretty {
+            serde_json::to_string_pretty(&self.0).unwrap()
+        } else {
+            serde_json::to_string(&self.0).unwrap()
+        }
+    }
+
     pub fn to_rust_ast(&self) -> TokenStream {
         let mut methods = Vec::new();
         let mut types = Vec::new();
